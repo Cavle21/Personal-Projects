@@ -3,7 +3,6 @@
 .PARAMETER $mode
 PrepForEmail, FixAfterEmail, QuickChange
 
-
 #>
 
 param (
