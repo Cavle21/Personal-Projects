@@ -1,3 +1,5 @@
+using module "Modules\ExcelManagement.psm1"
+
 <#
 
 .PARAMETER $mode
@@ -17,15 +19,15 @@ HardCodedValues
         While ($Worksheet.Cells.Item(1,$Col).Value() -ne $null)
 #>
 
-param (
+<#param (
     [Parameter(Mandatory=$true,ParameterSetName='Mode')]
     [ValidateSet("Get-Hours", "Set-Hours")]
     [ValidateNotNullOrEmpty()]
-        [string]$mode,
-    [Parameter(Mandatory=$true)]
+        [string]$mode = "Get-Hours",
+    #[Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
-    [ValidatePattern(“\d{6}-\d{3}-\d{3}-\d{3}”)]
-        [string]$contractNumber,
+    [ValidatePattern(“\d{5}-\d{3}-\d{3}-\d{3}”)]
+        [string]$contractNumber = 11240-001-001-001,
     [Parameter(ParameterSetName='Set-Hours')]
         [uint32]$hoursToAdd,
     [Parameter(ParameterSetName='ValueToChange')]
@@ -41,51 +43,52 @@ param (
         }
     })]
         [string]$path = "$env:userprofile\documents\personaldocs\Work Authorizations.xlsx"
-)
+)#>
+
 function Import-MyExcelFile {
 
     param(    
         [parameter()]
-            $path = "$env:userprofile\documents\personaldocs\Work Authorizations.xlsx",
+            [string]$path = "$env:userprofile\documents\personaldocs\Work Authorizations.xlsx",
         [parameter()]
-            $page = 'Sheet1'
+            [string]$page = 'Sheet1',
+        [Parameter()]
+            [boolean]$visibility = $true,
+        [Parameter()]
+            [boolean]$displayAlerts = $true
     )
 
-    $excel = New-Object -ComObject Excel.Application
-    try{
-        $workBook = $excel.Workbooks.Open($path)
-    }catch{
-        Write-host "Unable to open excelsheet"
-        Write-host $error[0].exception.Message
-        exit
-    }
+    $excelDocument = [ExcelDocument]::New($path, $visibility, $displayAlerts)
 
-    $workSheet = $workBook.worksheets | Where-Object {$_.Name -eq $page}
-
-    $excelObjArr = @($excel, $workbook, $workSheet)
-
-    return $excelObjArr
+    return $excelDocument
 }
 
 function Get-Value {
 
     param (
         [System.Collections.ArrayList]$contractNumbers,
-        [System.Collections.ArrayList]$excelObjArr
+        [excelDocument]$excelDocument
     )
 
+
+    $headers = $excelDocument.GetColumnHeaders(1,5)
+
+    $results = $excelDocument.GetValuesInRow(1, 6)
+
+    <# 
     $result = [PSCustomObject]@{}
     $numberOfResults = 1
-    $firstRow = $found.row
     $foundArr = new-object System.Collections.ArrayList
     #find all rows that match the first set of numbers
     $found = $worksheet.Cells.Find($contractNumbers[0])
+    $firstRow = $found.row
     $loop = $true
     #loop through all results $found and store them in an array
     while($loop -eq $true){
         $foundarr.Add($found)
         $found = $worksheet.Cells.FindNext($found)
         $currentRow = $found.row
+        #Write-host "$currentrow and $firstRow"
         if ($currentRow -eq $firstRow){
             $loop = $false
         }else{
@@ -93,10 +96,13 @@ function Get-Value {
         }
     }
 
+    Write-host "There are $numberOfResults rows with that value."
+
     #check rows found against second element in array ( hopefully this eliminates all others but one)
 
     forEach ($item in $foundarr){
-        if ($workSheet.cells.item($item.row,10).text -eq $contractNumbers[1]){
+        #Write-host $item.row
+        if (($workSheet.cells.item($item.row,10).text) -eq $contractNumbers[1]){
             $found = $item
         }
     }
@@ -106,24 +112,26 @@ function Get-Value {
     $ArrHeaders = new-object System.Collections.ArrayList
     #get all column headers
     Do  { 
-        $Column = $Worksheet.Cells.Item(5, $Col).Value().trim()  
+        $Column = $Worksheet.Cells.Item(5, $Col).Value() #.trim()  
+        #Write-host $Column
         $ArrHeaders += $Column -replace " ", "" 
-        $intCol++ 
-    } While ($Worksheet.Cells.Item(1,$Col).Value() -ne $null)
-    
+        $Col++ 
+    } While ($Worksheet.Cells.Item(5,$Col).Value() -ne $null)
     $col = 1
     #add data to result object using column headers as variable name
     forEach ($objHeader in $ArrHeaders){  
-        If ($objWorksheet.Cells.Item($found.Row, $col).Value() -ne $null){  
-            $result | Add-Member -type NoteProperty -name $objHeader -value $worksheet.Cells.Item($found.Row, $Col).Value().trim()  
+        If ($Worksheet.Cells.Item($found.Row, $col).Value() -ne $null){  
+            $result | Add-Member -type NoteProperty -name $objHeader -value $worksheet.Cells.Item($found.Row, $Col).Value() #.trim()  
         }else{ 
             $result | Add-Member -type NoteProperty -name $objHeader -value $null  
         }
 
         $Col++ 
-    }  
-    #pscustomObj
-    return $result
+    }#>
+
+    $excelDocument.CloseDocument()
+
+    return $results
 }
 
 Function Set-Value {
@@ -147,22 +155,29 @@ Function Set-Value {
 
 function Main {
 
+    [string]$contractNumber = "11240-001-001-001"
+
     $contractNumbers = $contractNumber.Split("-")
+
+    
+    [string]$mode = "Get-Hours"
+    [string]$path = "$env:userprofile\documents\personaldocs\Work Authorizations.xlsx"
+
+    write-host "Initializing..."
 
     $excelObjArr = Import-MyExcelFile
 
     switch($mode){
         "Get-Hours"{
-            $results = Get-Value -contractNumbers $contractNumbers
-            Write-Host "For $contractNumber you have {0} hours remaining" -f $results.HoursRemaining
+            $results = Get-Value -contractNumbers $contractNumbers -excelObjArr $excelObjArr
+            $result =  "For $contractNumber you have {0} hours remaining" -f $results.HoursRemaining
+            Write-host $result
         }
         "Set-Hours"{
             $results = Get-Value -contractNumbers $contractNumbers
         }
     }
-
-    
-
-
 }
+
+Main
 
